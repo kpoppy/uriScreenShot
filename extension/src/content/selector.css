@@ -1,0 +1,35 @@
+#uri-screenshot-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  background: rgba(0, 0, 0, 0.3);
+  cursor: crosshair;
+}
+
+#uri-screenshot-selection {
+  position: absolute;
+  border: 2px solid #4A90E2;
+  background: rgba(74, 144, 226, 0.1);
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.3);
+  cursor: default;
+}
+
+#uri-screenshot-selection::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 1px dashed rgba(255, 255, 255, 0.6);
+  pointer-events: none;
+}
+
+#uri-screenshot-tooltip {
+  position: fixed;
+  background: rgba(0, 0, 0, 0.75);
+  color: #fff;
+  font: 12px/1 monospace;
+  padding: 4px 8px;
+  border-radius: 4px;
+  pointer-events: none;
+  white-space: nowrap;
+  z-index: 2147483648;
+}

@@ -1,0 +1,42 @@
+{
+  "manifest_version": 3,
+  "name": "uriScreenShot",
+  "version": "1.0.0",
+  "description": "전체 페이지·영역·가시 영역 스크린샷 캡처 및 편집 도구",
+  "permissions": [
+    "activeTab",
+    "tabs",
+    "storage",
+    "downloads",
+    "clipboardWrite",
+    "scripting"
+  ],
+  "background": {
+    "service_worker": "background/service-worker.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content/capture.js", "content/selector.js"],
+      "css": ["content/selector.css"],
+      "run_at": "document_end"
+    }
+  ],
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/16.png",
+      "32": "icons/32.png",
+      "48": "icons/48.png",
+      "128": "icons/128.png"
+    }
+  },
+  "options_page": "options/options.html",
+  "web_accessible_resources": [
+    {
+      "resources": ["editor/editor.html", "chunks/*"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}
