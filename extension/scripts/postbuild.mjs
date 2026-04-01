@@ -6,6 +6,7 @@ const dist = resolve(import.meta.dirname, '../dist')
 // HTML 파일을 올바른 위치로 이동
 const htmlFiles = [
   ['src/popup/popup.html', 'popup/popup.html'],
+  ['src/recorder/recorder.html', 'recorder/recorder.html'],
   ['src/editor/editor.html', 'editor/editor.html'],
   ['src/options/options.html', 'options/options.html'],
 ]

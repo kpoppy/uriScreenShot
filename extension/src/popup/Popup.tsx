@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import type { HistoryItem, ExtensionSettings } from '../types'
-import { DEFAULT_SETTINGS } from '../types'
+import { DEFAULT_SETTINGS, mergeSettings } from '../types'
+import { COMMANDS, loadCommandShortcuts, shortcutLabel } from '../commandInfo'
 
 type Status = 'idle' | 'capturing' | 'error'
 
@@ -9,14 +10,16 @@ export default function Popup() {
   const [history, setHistory] = useState<HistoryItem[]>([])
   const [settings, setSettings] = useState<ExtensionSettings>(DEFAULT_SETTINGS)
   const [errorMsg, setErrorMsg] = useState('')
+  const [commandShortcuts, setCommandShortcuts] = useState<Record<string, string>>({})
 
   useEffect(() => {
     chrome.runtime.sendMessage({ type: 'GET_HISTORY' }).then(res => {
       setHistory((res?.history ?? []).slice(0, 3))
     })
     chrome.runtime.sendMessage({ type: 'GET_SETTINGS' }).then(res => {
-      if (res?.settings) setSettings(res.settings)
+      if (res?.settings) setSettings(mergeSettings(res.settings))
     })
+    loadCommandShortcuts().then(setCommandShortcuts).catch(() => {})
   }, [])
 
   async function capture(mode: 'CAPTURE_FULL_PAGE' | 'CAPTURE_VIEWPORT' | 'CAPTURE_START_SELECT' | 'CAPTURE_THUMBNAIL' | 'COLOR_PICK_START') {
@@ -36,6 +39,33 @@ export default function Popup() {
     }
   }
 
+  async function openRecorder() {
+    setErrorMsg('')
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+      if (!tab?.id) throw new Error('녹화할 활성 탭을 찾을 수 없습니다.')
+      if (!tab.url || !/^https?:|^file:/.test(tab.url)) {
+        throw new Error('현재 페이지는 녹화할 수 없습니다. 일반 웹페이지(http/https)에서 다시 시도해 주세요.')
+      }
+
+      const url = new URL(chrome.runtime.getURL('recorder/recorder.html'))
+      url.searchParams.set('tabId', String(tab.id))
+      url.searchParams.set('title', tab.title ?? '')
+
+      await chrome.windows.create({
+        url: url.toString(),
+        type: 'popup',
+        width: 860,
+        height: 720,
+      })
+      window.close()
+    } catch (err) {
+      console.error(err)
+      setStatus('error')
+      setErrorMsg(err instanceof Error ? err.message : String(err))
+    }
+  }
+
   return (
     <div style={{ padding: 16 }}>
       {/* 헤더 */}
@@ -49,30 +79,37 @@ export default function Popup() {
         <CaptureBtn
           icon="📄"
           label="전체 페이지 캡처"
-          sub="스크롤 포함 전체"
+          sub={`스크롤 포함 전체 · ${shortcutLabel(commandShortcuts, COMMANDS.captureFullPage)}`}
           disabled={status === 'capturing'}
           onClick={() => capture('CAPTURE_FULL_PAGE')}
         />
         <CaptureBtn
           icon="🖥"
           label="가시 영역 캡처"
-          sub="현재 보이는 화면"
+          sub={`현재 보이는 화면 · ${shortcutLabel(commandShortcuts, COMMANDS.captureViewport)}`}
           disabled={status === 'capturing'}
           onClick={() => capture('CAPTURE_VIEWPORT')}
         />
         <CaptureBtn
           icon="✂️"
           label="영역 선택 캡처"
-          sub="드래그로 선택"
+          sub={`드래그로 선택 · ${shortcutLabel(commandShortcuts, COMMANDS.captureRegion)}`}
           disabled={status === 'capturing'}
           onClick={() => { capture('CAPTURE_START_SELECT') }}
         />
         <CaptureBtn
           icon="🪪"
           label="썸네일 캡처"
-          sub="페이지 정보 포함 즉시 저장"
+          sub={`페이지 정보 포함 즉시 저장 · ${shortcutLabel(commandShortcuts, COMMANDS.captureThumbnail)}`}
           disabled={status === 'capturing'}
           onClick={() => capture('CAPTURE_THUMBNAIL')}
+        />
+        <CaptureBtn
+          icon="⏺"
+          label="화면 녹화"
+          sub={`현재 탭을 WebM으로 저장 · ${shortcutLabel(commandShortcuts, COMMANDS.openRecorder)}`}
+          disabled={status === 'capturing'}
+          onClick={openRecorder}
         />
         <button
           disabled={status === 'capturing'}
@@ -86,7 +123,7 @@ export default function Popup() {
             opacity: status === 'capturing' ? 0.5 : 1,
           }}
         >
-          <span style={{ fontSize: 13 }}>🔍</span> 컬러피커
+          <span style={{ fontSize: 13 }}>🔍</span> 컬러피커 · {shortcutLabel(commandShortcuts, COMMANDS.colorPicker)}
         </button>
       </div>
 

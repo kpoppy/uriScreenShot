@@ -13,6 +13,7 @@ export default defineConfig({
         'content/capture': resolve(__dirname, 'src/content/capture.ts'),
         'content/selector': resolve(__dirname, 'src/content/selector.ts'),
         'popup/popup': resolve(__dirname, 'src/popup/popup.html'),
+        'recorder/recorder': resolve(__dirname, 'src/recorder/recorder.html'),
         'editor/editor': resolve(__dirname, 'src/editor/editor.html'),
         'options/options': resolve(__dirname, 'src/options/options.html'),
       },

@@ -5,6 +5,7 @@
   "description": "전체 페이지·영역·가시 영역 스크린샷 캡처 및 편집 도구",
   "permissions": [
     "activeTab",
+    "tabCapture",
     "tabs",
     "storage",
     "downloads",
@@ -14,6 +15,54 @@
   "background": {
     "service_worker": "background/service-worker.js",
     "type": "module"
+  },
+  "commands": {
+    "capture-full-page": {
+      "description": "전체 페이지 캡처"
+    },
+    "capture-viewport": {
+      "description": "가시 영역 캡처"
+    },
+    "capture-region": {
+      "description": "영역 선택 캡처"
+    },
+    "open-recorder": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+4",
+        "mac": "MacCtrl+Shift+4"
+      },
+      "description": "현재 탭 녹화 열기"
+    },
+    "capture-thumbnail": {
+      "description": "썸네일 캡처"
+    },
+    "color-picker": {
+      "description": "컬러피커 시작"
+    },
+    "recorder-start": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+5",
+        "mac": "MacCtrl+Shift+5"
+      },
+      "description": "녹화 시작"
+    },
+    "recorder-stop": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+6",
+        "mac": "MacCtrl+Shift+6"
+      },
+      "description": "녹화 종료"
+    },
+    "recorder-save": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+7",
+        "mac": "MacCtrl+Shift+7"
+      },
+      "description": "녹화 저장"
+    },
+    "recorder-reset": {
+      "description": "녹화 초기화"
+    }
   },
   "content_scripts": [
     {
