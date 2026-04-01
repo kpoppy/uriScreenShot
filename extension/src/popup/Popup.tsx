@@ -13,13 +13,20 @@ export default function Popup() {
   const [commandShortcuts, setCommandShortcuts] = useState<Record<string, string>>({})
 
   useEffect(() => {
+    const reloadCommandShortcuts = () => {
+      loadCommandShortcuts().then(setCommandShortcuts).catch(() => {})
+    }
+
     chrome.runtime.sendMessage({ type: 'GET_HISTORY' }).then(res => {
       setHistory((res?.history ?? []).slice(0, 3))
     })
     chrome.runtime.sendMessage({ type: 'GET_SETTINGS' }).then(res => {
       if (res?.settings) setSettings(mergeSettings(res.settings))
     })
-    loadCommandShortcuts().then(setCommandShortcuts).catch(() => {})
+    reloadCommandShortcuts()
+
+    window.addEventListener('focus', reloadCommandShortcuts)
+    return () => window.removeEventListener('focus', reloadCommandShortcuts)
   }, [])
 
   async function capture(mode: 'CAPTURE_FULL_PAGE' | 'CAPTURE_VIEWPORT' | 'CAPTURE_START_SELECT' | 'CAPTURE_THUMBNAIL' | 'COLOR_PICK_START') {

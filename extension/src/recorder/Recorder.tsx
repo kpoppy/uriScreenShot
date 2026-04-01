@@ -66,10 +66,17 @@ export default function Recorder() {
   }, [targetTitle])
 
   useEffect(() => {
+    const reloadCommandShortcuts = () => {
+      loadCommandShortcuts().then(setCommandShortcuts).catch(() => {})
+    }
+
     chrome.storage.sync.get('settings').then(result => {
       if (result.settings) setSettings(mergeSettings(result.settings))
     })
-    loadCommandShortcuts().then(setCommandShortcuts).catch(() => {})
+    reloadCommandShortcuts()
+
+    window.addEventListener('focus', reloadCommandShortcuts)
+    return () => window.removeEventListener('focus', reloadCommandShortcuts)
   }, [])
 
   useEffect(() => {
@@ -160,32 +167,7 @@ export default function Recorder() {
       setMimeType(preferredMime)
       if (!targetTabId) throw new Error('녹화 대상 탭 정보가 없습니다. 팝업에서 다시 시작해 주세요.')
 
-      const res = await chrome.runtime.sendMessage({
-        type: 'GET_TAB_RECORDING_STREAM_ID',
-        targetTabId,
-      })
-      if (res?.error) throw new Error(String(res.error))
-      if (!res?.streamId) throw new Error('탭 녹화 스트림을 시작하지 못했습니다.')
-
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: captureAudio
-          ? {
-              mandatory: {
-                chromeMediaSource: 'tab',
-                chromeMediaSourceId: res.streamId,
-              },
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            } as any
-          : false,
-        video: {
-          mandatory: {
-            chromeMediaSource: 'tab',
-            chromeMediaSourceId: res.streamId,
-            maxFrameRate: 30,
-          },
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        } as any,
-      })
+      const stream = await createRecordingStream(targetTabId, captureAudio)
       streamRef.current = stream
 
       if (captureAudio && stream.getAudioTracks().length > 0) {
@@ -413,6 +395,57 @@ function formatRecorderError(error: unknown): string {
     return 'REC-06: 녹화 스트림을 준비하지 못했습니다. 녹화창을 닫고 다시 열어 주세요.'
   }
   return `REC-99: ${raw}`
+}
+
+async function createRecordingStream(targetTabId: number, captureAudio: boolean): Promise<MediaStream> {
+  let lastError: unknown = null
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const res = await chrome.runtime.sendMessage({
+        type: 'GET_TAB_RECORDING_STREAM_ID',
+        targetTabId,
+      })
+      if (res?.error) throw new Error(String(res.error))
+      if (!res?.streamId) throw new Error('탭 녹화 스트림을 시작하지 못했습니다.')
+
+      return await navigator.mediaDevices.getUserMedia({
+        audio: captureAudio
+          ? {
+              mandatory: {
+                chromeMediaSource: 'tab',
+                chromeMediaSourceId: res.streamId,
+              },
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            } as any
+          : false,
+        video: {
+          mandatory: {
+            chromeMediaSource: 'tab',
+            chromeMediaSourceId: res.streamId,
+            maxFrameRate: 30,
+          },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        } as any,
+      })
+    } catch (error) {
+      lastError = error
+      const message = String(error).toLowerCase()
+      const canRetry =
+        attempt === 0 &&
+        (
+          message.includes('error starting tab capture') ||
+          message.includes('could not start video source') ||
+          message.includes('stream') ||
+          message.includes('abort')
+        )
+
+      if (!canRetry) break
+      await new Promise(resolve => setTimeout(resolve, 150))
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error(String(lastError ?? 'Unknown tab capture error'))
 }
 
 function statusLabel(status: RecorderStatus): string {

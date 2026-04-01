@@ -9,10 +9,17 @@ export default function Options() {
   const [commandShortcuts, setCommandShortcuts] = useState<Record<string, string>>({})
 
   useEffect(() => {
+    const reloadCommandShortcuts = () => {
+      loadCommandShortcuts().then(setCommandShortcuts).catch(() => {})
+    }
+
     chrome.storage.sync.get('settings').then(result => {
       if (result.settings) setSettings(mergeSettings(result.settings))
     })
-    loadCommandShortcuts().then(setCommandShortcuts).catch(() => {})
+    reloadCommandShortcuts()
+
+    window.addEventListener('focus', reloadCommandShortcuts)
+    return () => window.removeEventListener('focus', reloadCommandShortcuts)
   }, [])
 
   function update<K extends keyof ExtensionSettings>(key: K, value: ExtensionSettings[K]) {
