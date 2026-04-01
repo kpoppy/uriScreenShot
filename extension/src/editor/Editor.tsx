@@ -25,6 +25,9 @@ export default function Editor() {
   const [showPalettePanel, setShowPalettePanel] = useState(false)
   const [palettePanelPos, setPalettePanelPos] = useState({ top: 0, right: 0 })
   const paletteBtnRef = useRef<HTMLButtonElement>(null)
+  const [showExportPanel, setShowExportPanel] = useState(false)
+  const [exportPanelPos, setExportPanelPos] = useState({ top: 0, right: 0 })
+  const exportBtnRef = useRef<HTMLButtonElement>(null)
   // 크롭 선택 상태
   const [cropSel, setCropSel] = useState<{ x: number; y: number; w: number; h: number; btnLeft: number; btnTop: number } | null>(null)
   const cropRectRef = useRef<import('fabric').Rect | null>(null)
@@ -1118,6 +1121,22 @@ export default function Editor() {
     document.body.removeChild(a)
   }, [])
 
+  const buildExportFilename = useCallback((preset: 'bug' | 'design' | 'document' | 'archive', ext: 'png' | 'jpg' | 'pdf') => {
+    const site = (capture?.tabUrl ?? '')
+      .replace(/^https?:\/\//, '')
+      .replace(/^www\./, '')
+      .split(/[/?#]/)[0]
+      .replace(/[^a-zA-Z0-9.-]/g, '_')
+      || 'capture'
+    const title = (capture?.tabTitle ?? '')
+      .trim()
+      .replace(/\s+/g, '_')
+      .replace(/[\\/:*?"<>|]/g, '')
+      .slice(0, 40)
+    const stem = [preset, site, title, generateFilename('{datetime}')].filter(Boolean).join('_')
+    return `${stem}.${ext}`
+  }, [capture?.tabTitle, capture?.tabUrl])
+
   // PNG 다운로드
   const downloadPng = useCallback(() => {
     const fc = fabricRef.current
@@ -1133,6 +1152,20 @@ export default function Editor() {
     const dataUrl = fc.toDataURL({ format: 'jpeg', quality: 0.9, multiplier: 1 / zoomRef.current })
     downloadFile(dataUrl, generateFilename('{datetime}') + '.jpg')
   }, [downloadFile])
+
+  const exportPresetPng = useCallback((preset: 'bug' | 'design') => {
+    const fc = fabricRef.current
+    if (!fc) return
+    const dataUrl = fc.toDataURL({ format: 'png', multiplier: 1 / zoomRef.current })
+    downloadFile(dataUrl, buildExportFilename(preset, 'png'))
+  }, [buildExportFilename, downloadFile])
+
+  const exportPresetJpeg = useCallback(() => {
+    const fc = fabricRef.current
+    if (!fc) return
+    const dataUrl = fc.toDataURL({ format: 'jpeg', quality: 0.9, multiplier: 1 / zoomRef.current })
+    downloadFile(dataUrl, buildExportFilename('archive', 'jpg'))
+  }, [buildExportFilename, downloadFile])
 
   // 클립보드 복사
   const copyToClipboard = useCallback(async () => {
@@ -1158,6 +1191,49 @@ export default function Editor() {
     pdf.addImage(dataUrl, 'JPEG', 0, 0, width, height)
     pdf.save(generateFilename('{datetime}') + '.pdf')
   }, [])  // jsPDF.save()는 내부에서 blob URL 생성하므로 파일명 정상 동작
+
+  const exportPresetPdf = useCallback(async () => {
+    const fc = fabricRef.current
+    if (!fc) return
+    const { jsPDF } = await import('jspdf')
+    const dataUrl = fc.toDataURL({ format: 'jpeg', quality: 0.9, multiplier: 1 / zoomRef.current })
+    const { width, height } = originalSizeRef.current
+    const orientation = width > height ? 'l' : 'p'
+    const pdf = new jsPDF({ orientation, unit: 'px', format: [width, height] })
+    pdf.setProperties({
+      title: capture?.tabTitle || 'uriScreenShot Export',
+      subject: 'Document export',
+      author: 'uriScreenShot',
+      keywords: `${capture?.tabUrl ?? ''}`.slice(0, 255),
+    })
+    pdf.addImage(dataUrl, 'JPEG', 0, 0, width, height)
+    pdf.save(buildExportFilename('document', 'pdf'))
+  }, [buildExportFilename, capture?.tabTitle, capture?.tabUrl])
+
+  const copyShareSummary = useCallback(async () => {
+    const summary = [
+      `제목: ${capture?.tabTitle || 'Untitled'}`,
+      `URL: ${capture?.tabUrl || '-'}`,
+      `크기: ${originalSizeRef.current.width} x ${originalSizeRef.current.height}px`,
+      `캡처 시각: ${new Date().toLocaleString('ko-KR')}`,
+    ].join('\n')
+    await navigator.clipboard.writeText(summary)
+    alert('캡처 메타데이터를 복사했습니다.')
+  }, [capture?.tabTitle, capture?.tabUrl])
+
+  const copyMarkdownSummary = useCallback(async () => {
+    const title = capture?.tabTitle || 'Untitled'
+    const url = capture?.tabUrl || ''
+    const markdown = [
+      `## ${title}`,
+      url ? `[원본 페이지](${url})` : '',
+      '',
+      `- 크기: ${originalSizeRef.current.width} x ${originalSizeRef.current.height}px`,
+      `- 캡처 시각: ${new Date().toLocaleString('ko-KR')}`,
+    ].filter(Boolean).join('\n')
+    await navigator.clipboard.writeText(markdown)
+    alert('마크다운 요약을 복사했습니다.')
+  }, [capture?.tabTitle, capture?.tabUrl])
 
   const toolBtns: { id: EditorTool; label: string; icon: React.ReactNode; action?: () => void }[] = [
     { id: 'select',     label: '선택',    icon: <IcoSelect /> },
@@ -1293,6 +1369,20 @@ export default function Editor() {
         {/* 저장/내보내기 */}
         <div style={{ display: 'flex', alignItems: 'center' }}>
           <button onClick={copyToClipboard} title="클립보드 복사" style={psTopBtn}><IcoClipboard /></button>
+          <button
+            ref={exportBtnRef}
+            onClick={() => {
+              if (!showExportPanel && exportBtnRef.current) {
+                const r = exportBtnRef.current.getBoundingClientRect()
+                setExportPanelPos({ top: r.bottom + 4, right: window.innerWidth - r.right })
+              }
+              setShowExportPanel(p => !p)
+            }}
+            title="빠른 내보내기"
+            style={{ ...psTopBtn, background: showExportPanel ? '#2f3a55' : 'transparent' }}
+          >
+            <IcoShare />
+          </button>
           <button ref={paletteBtnRef} onClick={() => { if (!showPalettePanel && paletteBtnRef.current) { const r = paletteBtnRef.current.getBoundingClientRect(); setPalettePanelPos({ top: r.bottom + 4, right: window.innerWidth - r.right }) } setShowPalettePanel(p => !p) }} title="팔레트 추출" style={{ ...psTopBtn, background: showPalettePanel ? '#2a3a2a' : 'transparent' }}><IcoPalette /></button>
           <button onClick={downloadPng} title="PNG 저장" style={{ ...psTopBtn, gap: 2 }}><IcoDownload /><span style={{ fontSize: 8, fontWeight: 700, color: '#70c090' }}>PNG</span></button>
           <button onClick={downloadJpeg} title="JPG 저장" style={{ ...psTopBtn, gap: 2 }}><IcoDownload /><span style={{ fontSize: 8, fontWeight: 700, color: '#70a0c0' }}>JPG</span></button>
@@ -1473,6 +1563,32 @@ export default function Editor() {
         )}
       </div>
     )}
+    {showExportPanel && (
+      <div style={{
+        position: 'fixed', top: exportPanelPos.top, right: exportPanelPos.right,
+        background: '#16213e', border: '1px solid #4A90E2', borderRadius: 10,
+        padding: 16, zIndex: 2000, width: 300,
+        boxShadow: '0 8px 32px rgba(0,0,0,0.7)',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+          <span style={{ color: '#a8b4ff', fontWeight: 700, fontSize: 13 }}>공유 / 내보내기</span>
+          <button onClick={() => setShowExportPanel(false)}
+            style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: '0 2px' }}>✕</button>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
+          <button onClick={() => exportPresetPng('bug')} style={exportPresetBtnStyle}>버그 리포트 PNG</button>
+          <button onClick={() => exportPresetPng('design')} style={exportPresetBtnStyle}>디자인 피드백 PNG</button>
+          <button onClick={exportPresetPdf} style={exportPresetBtnStyle}>문서 PDF</button>
+          <button onClick={exportPresetJpeg} style={exportPresetBtnStyle}>보관 JPG</button>
+        </div>
+
+        <div style={{ display: 'grid', gap: 8 }}>
+          <button onClick={copyShareSummary} style={exportActionBtnStyle}>캡처 메타데이터 복사</button>
+          <button onClick={copyMarkdownSummary} style={exportActionBtnStyle}>마크다운 요약 복사</button>
+        </div>
+      </div>
+    )}
     {/* 리사이즈 패널 */}
     {showResizePanel && (
       <div style={{ position: 'fixed', top: 60, right: 16, background: '#16213e', border: '1px solid #4A90E2', borderRadius: 10, padding: 16, zIndex: 2000, width: 220, boxShadow: '0 8px 32px rgba(0,0,0,0.7)' }}>
@@ -1623,6 +1739,29 @@ const tbBtnStyle: React.CSSProperties = { width: 26, height: 26, padding: 0, bor
 const actionBtnStyle: React.CSSProperties = {
   padding: '4px 10px', borderRadius: 4, border: 'none', cursor: 'pointer',
   background: '#2a3f6f', color: '#fff', fontSize: 12,
+}
+
+const exportPresetBtnStyle: React.CSSProperties = {
+  padding: '8px 10px',
+  borderRadius: 6,
+  border: '1px solid #2f5b9a',
+  background: '#203352',
+  color: '#dfe9ff',
+  fontSize: 11,
+  cursor: 'pointer',
+  fontWeight: 700,
+  lineHeight: 1.3,
+}
+
+const exportActionBtnStyle: React.CSSProperties = {
+  padding: '9px 10px',
+  borderRadius: 6,
+  border: '1px solid #2d6a4f',
+  background: '#173629',
+  color: '#bfe9cf',
+  fontSize: 11,
+  cursor: 'pointer',
+  fontWeight: 700,
 }
 
 const iconBtnStyle: React.CSSProperties = {
@@ -1836,6 +1975,14 @@ const IcoClipboard = () => <S>
   <rect x="6" y="2" width="4" height="3" rx="1" fill="currentColor"/>
   <line x1="5" y1="8" x2="11" y2="8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
   <line x1="5" y1="11" x2="11" y2="11" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+</S>
+
+const IcoShare = () => <S>
+  <circle cx="4" cy="8" r="2" fill="currentColor"/>
+  <circle cx="12" cy="4" r="2" fill="currentColor"/>
+  <circle cx="12" cy="12" r="2" fill="currentColor"/>
+  <path d="M5.7 7 L10.3 4.9" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round"/>
+  <path d="M5.7 9 L10.3 11.1" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round"/>
 </S>
 
 const IcoPalette = () => <S>
