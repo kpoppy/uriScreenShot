@@ -514,8 +514,16 @@ export default function Editor() {
     toolRef.current = tool
     fc.isDrawingMode = false
     fc.selection = tool === 'select'
-    fc.defaultCursor = tool === 'eyedropper' ? 'crosshair' : 'default'
-    fc.hoverCursor   = tool === 'eyedropper' ? 'crosshair' : 'move'
+    fc.defaultCursor =
+      tool === 'eyedropper' ? 'crosshair' :
+      tool === 'hand' ? 'grab' :
+      tool === 'zoom' ? 'zoom-in' :
+      'default'
+    fc.hoverCursor =
+      tool === 'eyedropper' ? 'crosshair' :
+      tool === 'hand' ? 'grab' :
+      tool === 'zoom' ? 'zoom-in' :
+      'move'
 
     fc.off('mouse:down')
     fc.off('mouse:move')
@@ -540,6 +548,49 @@ export default function Editor() {
         const origX = Math.max(0, Math.min(Math.round(px / zoomRef.current), width - 1))
         const origY = Math.max(0, Math.min(Math.round(py / zoomRef.current), height - 1))
         applyFill(origX, origY)
+      })
+    } else if (tool === 'hand') {
+      let dragging = false
+      let lastX = 0
+      let lastY = 0
+
+      fc.selection = false
+      fc.defaultCursor = 'grab'
+      fc.hoverCursor = 'grab'
+
+      fc.on('mouse:down', (opt) => {
+        const e = opt.e as MouseEvent
+        dragging = true
+        lastX = e.clientX
+        lastY = e.clientY
+        fc.defaultCursor = 'grabbing'
+        fc.hoverCursor = 'grabbing'
+      })
+
+      fc.on('mouse:move', (opt) => {
+        if (!dragging) return
+        const e = opt.e as MouseEvent
+        const wrapper = canvasWrapperRef.current
+        if (!wrapper) return
+        wrapper.scrollLeft -= e.clientX - lastX
+        wrapper.scrollTop -= e.clientY - lastY
+        lastX = e.clientX
+        lastY = e.clientY
+      })
+
+      fc.on('mouse:up', () => {
+        dragging = false
+        fc.defaultCursor = 'grab'
+        fc.hoverCursor = 'grab'
+      })
+    } else if (tool === 'zoom') {
+      fc.selection = false
+      fc.defaultCursor = 'zoom-in'
+      fc.hoverCursor = 'zoom-in'
+      fc.on('mouse:down', (opt) => {
+        const e = opt.e as MouseEvent
+        const delta = e.shiftKey || e.altKey ? -0.2 : 0.2
+        applyZoom(zoomRef.current + delta)
       })
     } else if (tool === 'pen') {
       import('fabric').then(({ PencilBrush }) => {
@@ -799,7 +850,7 @@ export default function Editor() {
         fc.add(fImg); fc.setActiveObject(fImg); fc.renderAll()
       })
     }
-  }, [tool, color, strokeWidth, applyMosaic, applyFill, pushUndo, snapshotNow])
+  }, [tool, color, strokeWidth, applyMosaic, applyFill, pushUndo, snapshotNow, applyZoom])
 
   // ─── 선택 영역 지우기 ────────────────────────────────────────────────────────
   const eraseRegion = useCallback(async () => {
@@ -1237,6 +1288,8 @@ export default function Editor() {
 
   const toolBtns: { id: EditorTool; label: string; icon: React.ReactNode; action?: () => void }[] = [
     { id: 'select',     label: '선택',    icon: <IcoSelect /> },
+    { id: 'hand',       label: '손',      icon: <IcoHand /> },
+    { id: 'zoom',       label: '줌',      icon: <IcoZoomTool /> },
     { id: 'pen',        label: '펜',      icon: <IcoPen /> },
     { id: 'text',       label: '텍스트',  icon: <IcoText />,       action: addText },
     { id: 'rect',       label: '박스',    icon: <IcoRect />,       action: addRect },
@@ -1338,12 +1391,14 @@ export default function Editor() {
         )}
 
         {/* 힌트 */}
-        {(tool === 'select' || tool === 'crop' || tool === 'mosaic' || tool === 'eyedropper') && (
+        {(tool === 'select' || tool === 'crop' || tool === 'mosaic' || tool === 'eyedropper' || tool === 'hand' || tool === 'zoom') && (
           <span style={{ fontSize: 10, color: '#505050', paddingRight: 10 }}>
             {tool === 'select' && '오브젝트를 클릭·드래그하여 선택, Del로 삭제'}
             {tool === 'crop' && '드래그로 영역 선택 → 크롭 또는 지우기'}
             {tool === 'mosaic' && '드래그로 블러 처리할 영역 선택'}
             {tool === 'eyedropper' && '클릭하여 색상 추출 → 현재 색상에 적용'}
+            {tool === 'hand' && '드래그하여 캔버스를 이동'}
+            {tool === 'zoom' && '클릭하여 확대, Shift 또는 Alt+클릭으로 축소'}
           </span>
         )}
 
@@ -1367,7 +1422,7 @@ export default function Editor() {
         </div>
 
         {/* 저장/내보내기 */}
-        <div style={{ display: 'flex', alignItems: 'center' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
           <button onClick={copyToClipboard} title="클립보드 복사" style={psTopBtn}><IcoClipboard /></button>
           <button
             ref={exportBtnRef}
@@ -1405,6 +1460,8 @@ export default function Editor() {
           padding: '8px 0', gap: 0, overflowY: 'auto',
         }}>
           {psBtn('select',     '선택 [V]',        <IcoSelect />)}
+          {psBtn('hand',       '손 [Space]',      <IcoHand />)}
+          {psBtn('zoom',       '줌 [Z]',          <IcoZoomTool />)}
           <div style={psSepH} />
           {psBtn('pen',        '펜 [P]',           <IcoPen />)}
           {psBtn('highlight',  '형광펜 [H]',       <IcoHighlight />)}
@@ -1902,6 +1959,20 @@ const S = ({ children, size = 16 }: { children: React.ReactNode; size?: number }
 
 const IcoSelect = () => <S>
   <path d="M3 2 L3 13 L6 10 L8 14 L10 13 L8 9 L12 9 Z" fill="currentColor" stroke="currentColor" strokeWidth="0.5" strokeLinejoin="round"/>
+</S>
+
+const IcoHand = () => <S>
+  <path d="M5 8 V4.5 C5 3.8 5.4 3.2 6 3.2 C6.6 3.2 7 3.8 7 4.5 V8" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+  <path d="M7 8 V3.8 C7 3.1 7.4 2.5 8 2.5 C8.6 2.5 9 3.1 9 3.8 V8" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+  <path d="M9 8 V4.3 C9 3.7 9.4 3.2 10 3.2 C10.6 3.2 11 3.7 11 4.3 V8.5" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+  <path d="M5 8 L4.2 7.1 C3.7 6.6 2.9 6.6 2.5 7.1 C2.1 7.6 2.1 8.4 2.6 8.9 L5.8 12.7 C6.4 13.4 7.2 13.8 8.1 13.8 H9.7 C11.5 13.8 13 12.3 13 10.5 V7 C13 6.3 12.6 5.8 12 5.8 C11.4 5.8 11 6.3 11 7" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+</S>
+
+const IcoZoomTool = () => <S>
+  <circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.6"/>
+  <line x1="7" y1="5" x2="7" y2="9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+  <line x1="5" y1="7" x2="9" y2="7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+  <line x1="10.5" y1="10.5" x2="14" y2="14" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
 </S>
 
 const IcoPen = () => <S>
