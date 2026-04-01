@@ -86,6 +86,7 @@ export default function Recorder() {
     }).then((res) => {
       const pending = res?.pendingCommand as string | undefined
       if (pending === 'start' && canStart) {
+        chrome.runtime.sendMessage({ type: 'RECORDER_COMMAND_CONSUMED' }).catch(() => {})
         void startRecording()
       }
     }).catch(() => {})
