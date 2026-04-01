@@ -4,7 +4,7 @@ import { sanitizeShortcut } from './shortcuts'
 
 export type CaptureMode = 'full_page' | 'viewport' | 'region'
 export type ImageFormat = 'png' | 'jpeg' | 'pdf'
-export type EditorTool = 'pen' | 'text' | 'rect' | 'mosaic' | 'crop' | 'select' | 'eyedropper' | 'fill' | 'arrow' | 'ellipse' | 'highlight' | 'number' | 'hand' | 'zoom'
+export type EditorTool = 'pen' | 'text' | 'rect' | 'mosaic' | 'crop' | 'select' | 'eyedropper' | 'fill' | 'arrow' | 'ellipse' | 'highlight' | 'number' | 'hand' | 'zoom' | 'blur' | 'marquee'
 
 export interface ExtMessage {
   type: string

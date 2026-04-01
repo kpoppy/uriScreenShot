@@ -30,6 +30,7 @@ export default function Editor() {
   const exportBtnRef = useRef<HTMLButtonElement>(null)
   // 크롭 선택 상태
   const [cropSel, setCropSel] = useState<{ x: number; y: number; w: number; h: number; btnLeft: number; btnTop: number } | null>(null)
+  const [marqueeSel, setMarqueeSel] = useState<{ x: number; y: number; w: number; h: number; btnLeft: number; btnTop: number } | null>(null)
   const cropRectRef = useRef<import('fabric').Rect | null>(null)
   // Undo / Redo 스택
   const undoStackRef = useRef<Array<{ dataUrl: string; width: number; height: number }>>([])
@@ -301,6 +302,84 @@ export default function Editor() {
       if (preActionRef.current) { pushUndo(preActionRef.current); preActionRef.current = null }
     })
   }, [pushUndo])
+
+  // 블러 브러시 적용
+  const applyBlurBrush = useCallback(async (points: Array<{ x: number; y: number }>, brushWidth: number) => {
+    const fc = fabricRef.current
+    if (!fc || points.length === 0) return
+
+    const dataUrl = fc.toDataURL({ format: 'png', multiplier: 1 / zoomRef.current })
+    const { width, height } = originalSizeRef.current
+
+    const baseCanvas = document.createElement('canvas')
+    baseCanvas.width = width
+    baseCanvas.height = height
+    const baseCtx = baseCanvas.getContext('2d')!
+
+    const img = new Image()
+    await new Promise<void>(resolve => {
+      img.onload = () => resolve()
+      img.src = dataUrl
+    })
+    baseCtx.drawImage(img, 0, 0)
+
+    const blurCanvas = document.createElement('canvas')
+    blurCanvas.width = width
+    blurCanvas.height = height
+    const blurCtx = blurCanvas.getContext('2d')!
+    blurCtx.filter = 'blur(10px)'
+    blurCtx.drawImage(img, 0, 0)
+
+    const maskCanvas = document.createElement('canvas')
+    maskCanvas.width = width
+    maskCanvas.height = height
+    const maskCtx = maskCanvas.getContext('2d')!
+    maskCtx.strokeStyle = '#ffffff'
+    maskCtx.fillStyle = '#ffffff'
+    maskCtx.lineCap = 'round'
+    maskCtx.lineJoin = 'round'
+    maskCtx.lineWidth = brushWidth
+
+    if (points.length === 1) {
+      const p = points[0]
+      maskCtx.beginPath()
+      maskCtx.arc(p.x, p.y, brushWidth / 2, 0, Math.PI * 2)
+      maskCtx.fill()
+    } else {
+      maskCtx.beginPath()
+      maskCtx.moveTo(points[0].x, points[0].y)
+      for (let i = 1; i < points.length; i++) {
+        maskCtx.lineTo(points[i].x, points[i].y)
+      }
+      maskCtx.stroke()
+    }
+
+    const maskedBlurCanvas = document.createElement('canvas')
+    maskedBlurCanvas.width = width
+    maskedBlurCanvas.height = height
+    const maskedBlurCtx = maskedBlurCanvas.getContext('2d')!
+    maskedBlurCtx.drawImage(maskCanvas, 0, 0)
+    maskedBlurCtx.globalCompositeOperation = 'source-in'
+    maskedBlurCtx.drawImage(blurCanvas, 0, 0)
+
+    const resultCanvas = document.createElement('canvas')
+    resultCanvas.width = width
+    resultCanvas.height = height
+    const resultCtx = resultCanvas.getContext('2d')!
+    resultCtx.drawImage(baseCanvas, 0, 0)
+    resultCtx.drawImage(maskedBlurCanvas, 0, 0)
+    const resultUrl = resultCanvas.toDataURL('image/png')
+
+    const { FabricImage } = await import('fabric')
+    fc.clear()
+    fc.setZoom(1); zoomRef.current = 1; setZoom(1)
+    fc.setWidth(width); fc.setHeight(height)
+    originalSizeRef.current = { width, height }
+    const fImg = await FabricImage.fromURL(resultUrl)
+    fImg.set({ selectable: false, evented: false })
+    fc.backgroundImage = fImg
+    fc.renderAll()
+  }, [])
 
   // ─── 페인트통 (플러드 필) ──────────────────────────────────────────────────────
   const applyFill = useCallback(async (origX: number, origY: number) => {
@@ -592,6 +671,37 @@ export default function Editor() {
         const delta = e.shiftKey || e.altKey ? -0.2 : 0.2
         applyZoom(zoomRef.current + delta)
       })
+    } else if (tool === 'blur') {
+      let drawing = false
+      const points: Array<{ x: number; y: number }> = []
+      fc.defaultCursor = 'crosshair'
+      fc.hoverCursor = 'crosshair'
+
+      fc.on('mouse:down', (opt) => {
+        drawing = true
+        points.length = 0
+        preActionRef.current = {
+          dataUrl: fc.toDataURL({ format: 'png', multiplier: 1 / zoomRef.current }),
+          width: originalSizeRef.current.width,
+          height: originalSizeRef.current.height,
+        }
+        const p = fc.getPointer(opt.e)
+        points.push({ x: p.x, y: p.y })
+      })
+
+      fc.on('mouse:move', (opt) => {
+        if (!drawing) return
+        const p = fc.getPointer(opt.e)
+        points.push({ x: p.x, y: p.y })
+      })
+
+      fc.on('mouse:up', async () => {
+        if (!drawing) return
+        drawing = false
+        const blurWidth = Math.max(14, strokeWidth * 8)
+        await applyBlurBrush(points, blurWidth)
+        if (preActionRef.current) { pushUndo(preActionRef.current); preActionRef.current = null }
+      })
     } else if (tool === 'pen') {
       import('fabric').then(({ PencilBrush }) => {
         fc.freeDrawingBrush = new PencilBrush(fc)
@@ -647,6 +757,60 @@ export default function Editor() {
         const width = Math.abs(pointer.x - startX)
         const height = Math.abs(pointer.y - startY)
         applyMosaic(left, top, width, height)
+      })
+    } else if (tool === 'marquee') {
+      if (cropRectRef.current) { fc.remove(cropRectRef.current); cropRectRef.current = null; fc.renderAll() }
+      setCropSel(null)
+      setMarqueeSel(null)
+
+      let drawing = false, sx = 0, sy = 0
+
+      fc.on('mouse:down', (opt) => {
+        if (cropRectRef.current) { fc.remove(cropRectRef.current); cropRectRef.current = null; fc.renderAll() }
+        setMarqueeSel(null)
+        drawing = true
+        const p = fc.getPointer(opt.e)
+        sx = p.x; sy = p.y
+      })
+
+      fc.on('mouse:move', async (opt) => {
+        if (!drawing) return
+        const { Rect } = await import('fabric')
+        const p = fc.getPointer(opt.e)
+        const x = Math.min(sx, p.x), y = Math.min(sy, p.y)
+        const w = Math.abs(p.x - sx), h = Math.abs(p.y - sy)
+        if (w < 2 || h < 2) return
+        if (cropRectRef.current) fc.remove(cropRectRef.current)
+        const z = zoomRef.current
+        cropRectRef.current = new Rect({
+          left: x, top: y, width: w, height: h,
+          fill: 'rgba(255,255,255,0.06)',
+          stroke: '#7fb1ff', strokeWidth: 1.5 / z,
+          strokeDashArray: [6 / z, 3 / z],
+          selectable: false, evented: false,
+        })
+        fc.add(cropRectRef.current)
+        fc.renderAll()
+      })
+
+      fc.on('mouse:up', (opt) => {
+        if (!drawing) return
+        drawing = false
+        const p = fc.getPointer(opt.e)
+        const x = Math.min(sx, p.x), y = Math.min(sy, p.y)
+        const w = Math.abs(p.x - sx), h = Math.abs(p.y - sy)
+        if (w <= 5 || h <= 5) {
+          if (cropRectRef.current) { fc.remove(cropRectRef.current); cropRectRef.current = null; fc.renderAll() }
+          return
+        }
+        const z = zoomRef.current
+        const canvasEl = canvasRef.current!
+        const wrapperEl = canvasWrapperRef.current!
+        const cr = canvasEl.getBoundingClientRect()
+        const wr = wrapperEl.getBoundingClientRect()
+        const btnLeft = cr.left - wr.left + wrapperEl.scrollLeft + x * z
+        const btnTop  = cr.top  - wr.top  + wrapperEl.scrollTop  + (y + h) * z + 6
+        setMarqueeSel({ x, y, w, h, btnLeft, btnTop })
       })
     } else if (tool === 'crop') {
       // 도구 전환 시 이전 크롭 선택 초기화
@@ -850,7 +1014,7 @@ export default function Editor() {
         fc.add(fImg); fc.setActiveObject(fImg); fc.renderAll()
       })
     }
-  }, [tool, color, strokeWidth, applyMosaic, applyFill, pushUndo, snapshotNow, applyZoom])
+  }, [tool, color, strokeWidth, applyMosaic, applyFill, pushUndo, snapshotNow, applyZoom, applyBlurBrush])
 
   // ─── 선택 영역 지우기 ────────────────────────────────────────────────────────
   const eraseRegion = useCallback(async () => {
@@ -891,6 +1055,60 @@ export default function Editor() {
     fc.renderAll()
     setTool('select')
   }, [cropSel, pushUndo, snapshotNow])
+
+  const eraseMarquee = useCallback(async () => {
+    const fc = fabricRef.current
+    if (!fc || !marqueeSel) return
+    const { FabricImage } = await import('fabric')
+
+    if (cropRectRef.current) { fc.remove(cropRectRef.current); cropRectRef.current = null }
+    pushUndo(snapshotNow())
+
+    const { x, y, w, h } = marqueeSel
+    setMarqueeSel(null)
+
+    const fullUrl = fc.toDataURL({ format: 'png', multiplier: 1 / zoomRef.current })
+    const { width, height } = originalSizeRef.current
+    const tmp = document.createElement('canvas')
+    tmp.width = width; tmp.height = height
+    const ctx = tmp.getContext('2d')!
+    const img = new Image()
+    await new Promise<void>(res => { img.onload = () => res(); img.src = fullUrl })
+    ctx.drawImage(img, 0, 0)
+    ctx.fillStyle = '#ffffff'
+    ctx.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h))
+    const nextUrl = tmp.toDataURL('image/png')
+
+    fc.clear()
+    fc.setZoom(1); zoomRef.current = 1; setZoom(1)
+    fc.setWidth(width); fc.setHeight(height)
+    originalSizeRef.current = { width, height }
+    const fImg = await FabricImage.fromURL(nextUrl)
+    fImg.set({ selectable: false, evented: false })
+    fc.backgroundImage = fImg
+    fc.renderAll()
+    setTool('select')
+  }, [marqueeSel, pushUndo, snapshotNow])
+
+  const blurMarquee = useCallback(async () => {
+    if (!marqueeSel) return
+    await applyMosaic(marqueeSel.x, marqueeSel.y, marqueeSel.w, marqueeSel.h)
+    const fc = fabricRef.current
+    if (fc && cropRectRef.current) {
+      fc.remove(cropRectRef.current)
+      cropRectRef.current = null
+      fc.renderAll()
+    }
+    setMarqueeSel(null)
+    setTool('select')
+  }, [applyMosaic, marqueeSel])
+
+  const cancelMarquee = useCallback(() => {
+    const fc = fabricRef.current
+    if (!fc) return
+    if (cropRectRef.current) { fc.remove(cropRectRef.current); cropRectRef.current = null; fc.renderAll() }
+    setMarqueeSel(null)
+  }, [])
 
   // ─── 크롭 확인 ───────────────────────────────────────────────────────────────
   const confirmCrop = useCallback(async () => {
@@ -1298,6 +1516,8 @@ export default function Editor() {
     { id: 'highlight',  label: '형광펜',     icon: <IcoHighlight /> },
     { id: 'number',     label: '번호스티커', icon: <IcoNumber /> },
     { id: 'mosaic',     label: '모자이크',   icon: <IcoMosaic /> },
+    { id: 'blur',       label: '블러 브러시', icon: <IcoBlurBrush /> },
+    { id: 'marquee',    label: '사각 선택',  icon: <IcoMarquee /> },
     { id: 'crop',       label: '크롭',       icon: <IcoCrop /> },
     { id: 'eyedropper', label: '스포이드',   icon: <IcoEyedropper /> },
     { id: 'fill',       label: '페인트통',   icon: <IcoFill /> },
@@ -1341,7 +1561,7 @@ export default function Editor() {
     </div>
   )
 
-  const drawingTools = ['pen', 'rect', 'ellipse', 'arrow', 'highlight']
+  const drawingTools = ['pen', 'rect', 'ellipse', 'arrow', 'highlight', 'blur']
 
   return (
     <>
@@ -1391,14 +1611,16 @@ export default function Editor() {
         )}
 
         {/* 힌트 */}
-        {(tool === 'select' || tool === 'crop' || tool === 'mosaic' || tool === 'eyedropper' || tool === 'hand' || tool === 'zoom') && (
+        {(tool === 'select' || tool === 'crop' || tool === 'marquee' || tool === 'mosaic' || tool === 'eyedropper' || tool === 'hand' || tool === 'zoom' || tool === 'blur') && (
           <span style={{ fontSize: 10, color: '#505050', paddingRight: 10 }}>
             {tool === 'select' && '오브젝트를 클릭·드래그하여 선택, Del로 삭제'}
             {tool === 'crop' && '드래그로 영역 선택 → 크롭 또는 지우기'}
+            {tool === 'marquee' && '사각 영역 선택 후 지우기 또는 블러 처리'}
             {tool === 'mosaic' && '드래그로 블러 처리할 영역 선택'}
             {tool === 'eyedropper' && '클릭하여 색상 추출 → 현재 색상에 적용'}
             {tool === 'hand' && '드래그하여 캔버스를 이동'}
             {tool === 'zoom' && '클릭하여 확대, Shift 또는 Alt+클릭으로 축소'}
+            {tool === 'blur' && '드래그한 경로를 따라 자연스럽게 블러 처리'}
           </span>
         )}
 
@@ -1443,7 +1665,7 @@ export default function Editor() {
           <button onClick={downloadJpeg} title="JPG 저장" style={{ ...psTopBtn, gap: 2 }}><IcoDownload /><span style={{ fontSize: 8, fontWeight: 700, color: '#70a0c0' }}>JPG</span></button>
           <button onClick={downloadPdf} title="PDF 저장" style={{ ...psTopBtn, gap: 2 }}><IcoDownload /><span style={{ fontSize: 8, fontWeight: 700, color: '#a080c0' }}>PDF</span></button>
         </div>
-        <div style={{ width: 1, height: 24, background: '#484848' }} />
+        <div style={{ width: 1, height: 24, background: '#484848', marginLeft: 8 }} />
         <button onClick={() => window.close()} title="닫기" style={{ ...psTopBtn, width: 40, color: '#b05050' }}><IcoClose /></button>
       </div>
 
@@ -1474,6 +1696,8 @@ export default function Editor() {
           {psBtn('number',     '번호스티커 [N]',   <IcoNumber />)}
           <div style={psSepH} />
           {psBtn('mosaic',     '모자이크 [M]',     <IcoMosaic />)}
+          {psBtn('blur',       '블러 브러시 [B]',  <IcoBlurBrush />)}
+          {psBtn('marquee',    '사각 선택 [U]',    <IcoMarquee />)}
           {psBtn('fill',       '페인트통 [F]',     <IcoFill />)}
           {psBtn('eyedropper', '스포이드 [I]',     <IcoEyedropper />)}
           <div style={psSepH} />
@@ -1527,6 +1751,25 @@ export default function Editor() {
               <button onClick={eraseRegion} style={{ padding: '3px 8px', background: '#4a2020', border: '1px solid #6a3030', borderRadius: 3, color: '#ddd', fontSize: 11, cursor: 'pointer' }}>지우기</button>
               <button onClick={confirmCrop} style={{ padding: '3px 10px', background: '#1e5aaa', border: '1px solid #2d6fcc', borderRadius: 3, color: '#fff', fontSize: 11, cursor: 'pointer', fontWeight: 600 }}>크롭</button>
               <button onClick={cancelCrop} style={{ padding: '3px 8px', background: '#3a3a3a', border: '1px solid #5a5a5a', borderRadius: 3, color: '#aaa', fontSize: 11, cursor: 'pointer' }}>취소</button>
+            </div>
+          )}
+
+          {marqueeSel && (
+            <div style={{
+              position: 'absolute',
+              left: marqueeSel.btnLeft + 20,
+              top: marqueeSel.btnTop,
+              display: 'flex', alignItems: 'center', gap: 6,
+              background: '#2b2b2b', border: '1px solid #5a5a5a',
+              borderRadius: 4, padding: '5px 10px',
+              boxShadow: '0 4px 24px rgba(0,0,0,0.9)',
+              zIndex: 100,
+            }}>
+              <span style={{ fontSize: 11, color: '#888' }}>사각 선택</span>
+              <div style={{ width: 1, height: 14, background: '#4a4a4a' }} />
+              <button onClick={eraseMarquee} style={{ padding: '3px 8px', background: '#4a2020', border: '1px solid #6a3030', borderRadius: 3, color: '#ddd', fontSize: 11, cursor: 'pointer' }}>지우기</button>
+              <button onClick={blurMarquee} style={{ padding: '3px 10px', background: '#3f315f', border: '1px solid #6b55a5', borderRadius: 3, color: '#fff', fontSize: 11, cursor: 'pointer', fontWeight: 600 }}>블러</button>
+              <button onClick={cancelMarquee} style={{ padding: '3px 8px', background: '#3a3a3a', border: '1px solid #5a5a5a', borderRadius: 3, color: '#aaa', fontSize: 11, cursor: 'pointer' }}>취소</button>
             </div>
           )}
         </div>
@@ -1994,6 +2237,16 @@ const IcoMosaic = () => <S>
   <rect x="9" y="2" width="5" height="5" rx="0.5" fill="currentColor" opacity="0.5"/>
   <rect x="2" y="9" width="5" height="5" rx="0.5" fill="currentColor" opacity="0.5"/>
   <rect x="9" y="9" width="5" height="5" rx="0.5" fill="currentColor" opacity="0.9"/>
+</S>
+
+const IcoBlurBrush = () => <S>
+  <circle cx="6" cy="6" r="3.5" fill="currentColor" opacity="0.2"/>
+  <circle cx="8" cy="8" r="4.5" fill="currentColor" opacity="0.4"/>
+  <circle cx="10.5" cy="10.5" r="3" fill="currentColor" opacity="0.7"/>
+</S>
+
+const IcoMarquee = () => <S>
+  <rect x="3" y="3" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeDasharray="2 1.6"/>
 </S>
 
 const IcoCrop = () => <S>
