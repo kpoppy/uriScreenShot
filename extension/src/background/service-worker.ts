@@ -516,7 +516,6 @@ async function openRecorderWindowForCommand(command: RecorderCommand, tab?: chro
 }
 
 function dispatchRecorderCommand(command: RecorderCommand) {
-  pendingRecorderCommand = command
   chrome.runtime.sendMessage({ type: 'RECORDER_COMMAND', command }).catch(() => {})
 }
 
@@ -558,13 +557,13 @@ chrome.commands.onCommand.addListener(async (command, tab) => {
         else dispatchRecorderCommand('start')
         break
       case COMMANDS.recorderStop:
-        dispatchRecorderCommand('stop')
+        if (recorderWindowId != null) dispatchRecorderCommand('stop')
         break
       case COMMANDS.recorderSave:
-        dispatchRecorderCommand('save')
+        if (recorderWindowId != null) dispatchRecorderCommand('save')
         break
       case COMMANDS.recorderReset:
-        dispatchRecorderCommand('reset')
+        if (recorderWindowId != null) dispatchRecorderCommand('reset')
         break
       default:
         break
