@@ -25,6 +25,7 @@ export default function Editor() {
   const [showPalettePanel, setShowPalettePanel] = useState(false)
   const [palettePanelPos, setPalettePanelPos] = useState({ top: 0, right: 0 })
   const paletteBtnRef = useRef<HTMLButtonElement>(null)
+  const [tooltip, setTooltip] = useState<{ text: string; x: number; y: number; placement: 'top' | 'right' | 'left' } | null>(null)
   const [showExportPanel, setShowExportPanel] = useState(false)
   const [exportPanelPos, setExportPanelPos] = useState({ top: 0, right: 0 })
   const exportBtnRef = useRef<HTMLButtonElement>(null)
@@ -1523,11 +1524,48 @@ export default function Editor() {
     { id: 'fill',       label: '페인트통',   icon: <IcoFill /> },
   ]
 
+  const tooltipProps = (text: string, placement: 'top' | 'right' | 'left' | 'auto-side' = 'top') => ({
+    onMouseEnter: (e: React.MouseEvent<HTMLElement>) => {
+      const rect = e.currentTarget.getBoundingClientRect()
+      const resolved = placement === 'auto-side'
+        ? (rect.left + rect.width / 2 < window.innerWidth / 2 ? 'right' : 'left')
+        : placement
+      setTooltip({
+        text,
+        x: resolved === 'right'
+          ? rect.right
+          : resolved === 'left'
+            ? rect.left
+            : rect.left + rect.width / 2,
+        y: resolved === 'top' ? rect.top - 10 : rect.top + rect.height / 2,
+        placement: resolved,
+      })
+    },
+    onMouseLeave: () => setTooltip(null),
+    onFocus: (e: React.FocusEvent<HTMLElement>) => {
+      const rect = e.currentTarget.getBoundingClientRect()
+      const resolved = placement === 'auto-side'
+        ? (rect.left + rect.width / 2 < window.innerWidth / 2 ? 'right' : 'left')
+        : placement
+      setTooltip({
+        text,
+        x: resolved === 'right'
+          ? rect.right
+          : resolved === 'left'
+            ? rect.left
+            : rect.left + rect.width / 2,
+        y: resolved === 'top' ? rect.top - 10 : rect.top + rect.height / 2,
+        placement: resolved,
+      })
+    },
+    onBlur: () => setTooltip(null),
+  })
+
   // ── 왼쪽 사이드바 툴 버튼 ──
   const psBtn = (id: EditorTool, label: string, icon: React.ReactNode, action?: () => void) => (
     <button
       key={id}
-      title={label}
+      {...tooltipProps(label, 'right')}
       onClick={() => { setTool(id); action?.() }}
       style={{
         width: 40, height: 36, padding: 0, border: 'none', cursor: 'pointer', borderRadius: 4,
@@ -1604,6 +1642,7 @@ export default function Editor() {
         {tool === 'number' && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, paddingRight: 10, borderRight: '1px solid #484848', marginRight: 10 }}>
             <button onClick={() => { stickerNumRef.current = 1 }}
+              {...tooltipProps('번호 스티커 번호를 1부터 다시 시작')}
               style={{ padding: '3px 10px', background: '#3c3c3c', border: '1px solid #555', borderRadius: 3, color: '#c0c0c0', fontSize: 10, cursor: 'pointer' }}>
               번호 리셋
             </button>
@@ -1628,26 +1667,27 @@ export default function Editor() {
 
         {/* 편집 액션 그룹 */}
         <div style={{ display: 'flex', alignItems: 'center', borderLeft: '1px solid #484848', borderRight: '1px solid #484848' }}>
-          <button onClick={undo} disabled={!canUndo} title="되돌리기 Ctrl+Z" style={{ ...psTopBtn, opacity: canUndo ? 1 : 0.22 }}><IcoUndo /></button>
-          <button onClick={redo} disabled={!canRedo} title="앞으로 Ctrl+Y" style={{ ...psTopBtn, opacity: canRedo ? 1 : 0.22 }}><IcoRedo /></button>
-          <button onClick={deleteSelected} title="선택 삭제 Del" style={psTopBtn}><IcoTrash /></button>
-          <button onClick={clearAll} title="전체 초기화" style={{ ...psTopBtn, color: '#b05050' }}><IcoClearAll /></button>
+          <button onClick={undo} disabled={!canUndo} {...tooltipProps('되돌리기 Ctrl+Z', 'auto-side')} style={{ ...psTopBtn, opacity: canUndo ? 1 : 0.22 }}><IcoUndo /></button>
+          <button onClick={redo} disabled={!canRedo} {...tooltipProps('앞으로 Ctrl+Y', 'auto-side')} style={{ ...psTopBtn, opacity: canRedo ? 1 : 0.22 }}><IcoRedo /></button>
+          <button onClick={deleteSelected} {...tooltipProps('선택 삭제 Del', 'auto-side')} style={psTopBtn}><IcoTrash /></button>
+          <button onClick={clearAll} {...tooltipProps('전체 초기화', 'auto-side')} style={{ ...psTopBtn, color: '#b05050' }}><IcoClearAll /></button>
         </div>
 
         {/* 이미지 편집 */}
         <div style={{ display: 'flex', alignItems: 'center', borderRight: '1px solid #484848' }}>
-          <button onClick={addPageInfo} title="페이지 정보 + QR + 팔레트" style={psTopBtn}><IcoPageInfo /></button>
-          <button onClick={rotate90} title="90° 회전" style={psTopBtn}><IcoRotate90 /></button>
-          <button onClick={() => { const { width, height } = originalSizeRef.current; resizeRatioRef.current = width / height; setResizeW(width); setResizeH(height); setShowResizePanel(p => !p); setShowAdjustPanel(false); setShowWatermarkPanel(false) }} title="크기 조절" style={{ ...psTopBtn, background: showResizePanel ? '#3a3a2a' : 'transparent' }}><IcoResize /></button>
-          <button onClick={() => { setShowAdjustPanel(p => !p); setShowResizePanel(false); setShowWatermarkPanel(false) }} title="밝기/대비" style={{ ...psTopBtn, background: showAdjustPanel ? '#3a3a2a' : 'transparent' }}><IcoBrightness /></button>
-          <button onClick={() => { setShowWatermarkPanel(p => !p); setShowResizePanel(false); setShowAdjustPanel(false) }} title="워터마크" style={{ ...psTopBtn, background: showWatermarkPanel ? '#3a3a2a' : 'transparent' }}><IcoWatermark /></button>
+          <button onClick={addPageInfo} {...tooltipProps('페이지 정보 + QR + 팔레트', 'auto-side')} style={psTopBtn}><IcoPageInfo /></button>
+          <button onClick={rotate90} {...tooltipProps('90° 회전', 'auto-side')} style={psTopBtn}><IcoRotate90 /></button>
+          <button onClick={() => { const { width, height } = originalSizeRef.current; resizeRatioRef.current = width / height; setResizeW(width); setResizeH(height); setShowResizePanel(p => !p); setShowAdjustPanel(false); setShowWatermarkPanel(false) }} {...tooltipProps('크기 조절', 'auto-side')} style={{ ...psTopBtn, background: showResizePanel ? '#3a3a2a' : 'transparent' }}><IcoResize /></button>
+          <button onClick={() => { setShowAdjustPanel(p => !p); setShowResizePanel(false); setShowWatermarkPanel(false) }} {...tooltipProps('밝기 / 대비', 'auto-side')} style={{ ...psTopBtn, background: showAdjustPanel ? '#3a3a2a' : 'transparent' }}><IcoBrightness /></button>
+          <button onClick={() => { setShowWatermarkPanel(p => !p); setShowResizePanel(false); setShowAdjustPanel(false) }} {...tooltipProps('워터마크', 'auto-side')} style={{ ...psTopBtn, background: showWatermarkPanel ? '#3a3a2a' : 'transparent' }}><IcoWatermark /></button>
         </div>
 
         {/* 저장/내보내기 */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-          <button onClick={copyToClipboard} title="클립보드 복사" style={psTopBtn}><IcoClipboard /></button>
+          <button onClick={copyToClipboard} {...tooltipProps('클립보드 복사', 'auto-side')} style={psTopBtn}><IcoClipboard /></button>
           <button
             ref={exportBtnRef}
+            {...tooltipProps('빠른 내보내기', 'auto-side')}
             onClick={() => {
               if (!showExportPanel && exportBtnRef.current) {
                 const r = exportBtnRef.current.getBoundingClientRect()
@@ -1655,18 +1695,17 @@ export default function Editor() {
               }
               setShowExportPanel(p => !p)
             }}
-            title="빠른 내보내기"
             style={{ ...psTopBtn, background: showExportPanel ? '#2f3a55' : 'transparent' }}
           >
             <IcoShare />
           </button>
-          <button ref={paletteBtnRef} onClick={() => { if (!showPalettePanel && paletteBtnRef.current) { const r = paletteBtnRef.current.getBoundingClientRect(); setPalettePanelPos({ top: r.bottom + 4, right: window.innerWidth - r.right }) } setShowPalettePanel(p => !p) }} title="팔레트 추출" style={{ ...psTopBtn, background: showPalettePanel ? '#2a3a2a' : 'transparent' }}><IcoPalette /></button>
-          <button onClick={downloadPng} title="PNG 저장" style={{ ...psTopBtn, gap: 2 }}><IcoDownload /><span style={{ fontSize: 8, fontWeight: 700, color: '#70c090' }}>PNG</span></button>
-          <button onClick={downloadJpeg} title="JPG 저장" style={{ ...psTopBtn, gap: 2 }}><IcoDownload /><span style={{ fontSize: 8, fontWeight: 700, color: '#70a0c0' }}>JPG</span></button>
-          <button onClick={downloadPdf} title="PDF 저장" style={{ ...psTopBtn, gap: 2 }}><IcoDownload /><span style={{ fontSize: 8, fontWeight: 700, color: '#a080c0' }}>PDF</span></button>
+          <button ref={paletteBtnRef} {...tooltipProps('팔레트 추출', 'auto-side')} onClick={() => { if (!showPalettePanel && paletteBtnRef.current) { const r = paletteBtnRef.current.getBoundingClientRect(); setPalettePanelPos({ top: r.bottom + 4, right: window.innerWidth - r.right }) } setShowPalettePanel(p => !p) }} style={{ ...psTopBtn, background: showPalettePanel ? '#2a3a2a' : 'transparent' }}><IcoPalette /></button>
+          <button onClick={downloadPng} {...tooltipProps('PNG 저장', 'auto-side')} style={{ ...psTopBtn, gap: 2 }}><IcoDownload /><span style={{ fontSize: 8, fontWeight: 700, color: '#70c090' }}>PNG</span></button>
+          <button onClick={downloadJpeg} {...tooltipProps('JPG 저장', 'auto-side')} style={{ ...psTopBtn, gap: 2 }}><IcoDownload /><span style={{ fontSize: 8, fontWeight: 700, color: '#70a0c0' }}>JPG</span></button>
+          <button onClick={downloadPdf} {...tooltipProps('PDF 저장', 'auto-side')} style={{ ...psTopBtn, gap: 2 }}><IcoDownload /><span style={{ fontSize: 8, fontWeight: 700, color: '#a080c0' }}>PDF</span></button>
         </div>
         <div style={{ width: 1, height: 24, background: '#484848', marginLeft: 8 }} />
-        <button onClick={() => window.close()} title="닫기" style={{ ...psTopBtn, width: 40, color: '#b05050' }}><IcoClose /></button>
+        <button onClick={() => window.close()} {...tooltipProps('닫기', 'auto-side')} style={{ ...psTopBtn, width: 40, color: '#b05050' }}><IcoClose /></button>
       </div>
 
       {/* ── 메인 (왼쪽 패널 + 캔버스) ── */}
@@ -1706,7 +1745,7 @@ export default function Editor() {
           {/* 전경색 표시 (PS 시그니처 요소) */}
           <div style={{ marginTop: 'auto', width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', paddingBottom: 10 }}>
             <div style={psSepH} />
-            <div style={{ position: 'relative', width: 32, height: 32, marginTop: 6 }} title={`전경색: ${color}`}>
+            <div style={{ position: 'relative', width: 32, height: 32, marginTop: 6 }} {...tooltipProps(`전경색: ${color}`, 'right')}>
               {/* 배경색 (흰색 고정) */}
               <div style={{ width: 20, height: 20, background: '#ffffff', border: '1.5px solid #666', borderRadius: 1, position: 'absolute', bottom: 0, right: 2, boxShadow: '0 1px 4px rgba(0,0,0,0.6)' }} />
               {/* 전경색 */}
@@ -1782,12 +1821,12 @@ export default function Editor() {
         display: 'flex', alignItems: 'center', padding: '0 10px', gap: 0,
         boxShadow: '0 -1px 4px rgba(0,0,0,0.3)',
       }}>
-        <button onClick={() => applyZoom(zoomRef.current - 0.1)} title="축소" style={psStatusBtn}><IcoZoomOut /></button>
-        <button onClick={() => applyZoom(1)} title="100%로 리셋"
+        <button onClick={() => applyZoom(zoomRef.current - 0.1)} {...tooltipProps('축소', 'auto-side')} style={psStatusBtn}><IcoZoomOut /></button>
+        <button onClick={() => applyZoom(1)} {...tooltipProps('100%로 리셋', 'auto-side')}
           style={{ ...psStatusBtn, minWidth: 46, fontFamily: 'monospace', fontWeight: 700, fontSize: 10, color: '#b0b0b0' }}>
           {Math.round(zoom * 100)}%
         </button>
-        <button onClick={() => applyZoom(zoomRef.current + 0.1)} title="확대" style={psStatusBtn}><IcoZoomIn /></button>
+        <button onClick={() => applyZoom(zoomRef.current + 0.1)} {...tooltipProps('확대', 'auto-side')} style={psStatusBtn}><IcoZoomIn /></button>
         <div style={{ width: 1, height: 12, background: '#484848', margin: '0 10px' }} />
         <span style={{ fontSize: 10, color: '#686868', fontFamily: 'monospace' }}>
           {originalSizeRef.current.width} × {originalSizeRef.current.height} px
@@ -1861,6 +1900,32 @@ export default function Editor() {
             </button>
           </>
         )}
+      </div>
+    )}
+    {tooltip && (
+      <div
+        style={{
+          position: 'fixed',
+          left: tooltip.x,
+          top: tooltip.y,
+          transform:
+            tooltip.placement === 'right' ? 'translate(0, -50%)' :
+            tooltip.placement === 'left' ? 'translate(-100%, -50%)' :
+            'translate(-50%, -100%)',
+          background: 'rgba(8, 12, 22, 0.96)',
+          color: '#eef3ff',
+          border: '1px solid rgba(120, 156, 214, 0.28)',
+          borderRadius: 6,
+          padding: '6px 8px',
+          fontSize: 11,
+          lineHeight: 1.25,
+          whiteSpace: 'nowrap',
+          pointerEvents: 'none',
+          zIndex: 5000,
+          boxShadow: '0 8px 24px rgba(0,0,0,0.45)',
+        }}
+      >
+        {tooltip.text}
       </div>
     )}
     {showExportPanel && (
